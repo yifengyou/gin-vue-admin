@@ -1,0 +1,97 @@
+#!/bin/bash
+
+set -xe
+
+timedatectl set-timezone 'Asia/Shanghai' || :
+
+cat >> ~/.bashrc << EOF
+# github.com/yifengyou/bash
+alias egrep='egrep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias grep='grep --color=auto'
+alias l.='ls -d .* -a --color=auto'
+alias ll='ls -l -h -a --color=auto'
+alias ls='ls -a --color=auto'
+alias cp='cp -i'
+alias mv='mv -i'
+alias rm='rm -i'
+alias xzegrep='xzegrep --color=auto'
+alias xzfgrep='xzfgrep --color=auto'
+alias xzgrep='xzgrep --color=auto'
+alias zegrep='zegrep --color=auto'
+alias zfgrep='zfgrep --color=auto'
+alias zgrep='zgrep --color=auto'
+alias push='git push'
+
+
+# History setting
+export PROMPT_COMMAND="history -a"
+export HISTTIMEFORMAT="%F %T "
+export HISTSIZE=10000
+
+# Proxy settings
+#export http_proxy='127.0.0.1:5050'
+#export https_proxy='127.0.0.1:5050'
+#export ftp_proxy='127.0.0.1:5050'
+
+#export http_proxy=
+#export https_proxy=
+#export ftp_proxy=
+
+PS1='\[\e[32;1m\][\[\e[31;1m\]\u\[\e[33;1m\]@\[\e[35;1m\]docker-fedora36-gva\[\e[36;1m\] \w\[\e[32;1m\]]\[\e[37;1m\]\\\$\[\e[0m\] '
+EOF
+
+
+# set mysql root@localhost password: gva123
+if [ ! -d /var/lib/mysql/gva ] ; then
+    #mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+    #mysqld --daemonize --user=mysql
+    #sleep 5s
+    systemctl enable --now mysqld
+    sync && sleep 3
+    mysql -uroot -e "CREATE DATABASE gva default charset 'utf8' collate 'utf8_bin'; GRANT ALL PRIVILEGES ON * . * TO 'root'@'localhost'; ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'gva123';flush privileges;"
+else
+    #mysqld --daemonize --user=mysql
+    systemctl enable --now mysqld
+fi
+
+# enable redis
+systemctl enable --now redis
+
+npm config set registry https://registry.npm.taobao.org
+if ! npm ls -g yarn | grep yarn ; then
+    npm install -g yarn
+fi
+
+go env -w GO111MODULE=on
+go env -w GOPROXY=https://goproxy.cn,direct
+
+if ! tmux ls | grep 'gva:' ; then
+    tmux new-session -d -s gva -n bash '/bin/bash'
+fi
+
+[ ! -d /opt/gva ] && mkdir -p /opt/gva
+if [ ! -d /opt/gva/server ] ; then
+    cp /data/server /opt/gva/ -a
+    cd /opt/gva/server && go generate && go build -o server main.go
+    tmux new-window -n server -t gva: '/usr/bin/bash -c "/usr/bin/cd /opt/gva/server && ./server"'
+fi
+
+if [ ! -d /opt/gva/web ] ; then
+    cp /data/web /opt/gva/ -a
+    # cd /opt/gva/web/ && npm install && npm run serve
+    cd /opt/gva/web/ && npm install
+    tmux new-window -n web -t gva: '/usr/bin/bash -c "/usr/bin/cd /opt/gva/web && /usr/bin/npm run serve"'
+fi
+
+echo "All done! Enjoy ~~~"
+
+exit 0
+if [ "$1" = "actions" ]; then
+    cd /opt/gva/server && go run main.go &
+    cd /opt/gva/web/ && yarn serve &
+else
+    /usr/sbin/nginx &
+    cd /usr/share/nginx/html/ && ./server &
+fi
+
